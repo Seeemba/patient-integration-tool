@@ -1,0 +1,30 @@
+{
+  "name": "patients-integration-tool",
+  "version": "1.0.0",
+  "description": "The integration tool that loads data from a CSV file, schedules email communications, and then executes automated tests to ensure all data and logic was processed correctly.",
+  "main": "index.js",
+  "scripts": {
+    "lint": "eslint --ignore-path .gitignore .",
+    "test": "mocha"
+  },
+  "keywords": [
+    "csv",
+    "schedule",
+    "email"
+  ],
+  "author": "Serhiy Posokhin",
+  "license": "ISC",
+  "dependencies": {
+    "app-root-path": "^3.0.0",
+    "chai": "^4.2.0",
+    "csv-parser": "^2.3.2",
+    "lodash": "^4.17.15",
+    "mocha": "^7.1.2",
+    "moment": "^2.26.0",
+    "mongoose": "^5.9.15",
+    "winston": "^3.2.1"
+  },
+  "devDependencies": {
+    "eslint": "^7.0.0"
+  }
+}
