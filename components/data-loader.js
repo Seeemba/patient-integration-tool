@@ -158,8 +158,8 @@ class DataLoader {
 
                 if(patients.length === self.numberOfBulkRecords){
                     Patient.bulkWrite(patients, (err, res) => {
-                        logger.log('info', `${patients.length} patients have been successfully uploaded.`);
                         if(err) throw err;
+                        logger.log('info', `${patients.length} patients have been successfully uploaded.`);
 
                         if(res.result.upserted){
                             return Promise.all(self.createEmails(res.result.upserted)).then(async (emails) => {
