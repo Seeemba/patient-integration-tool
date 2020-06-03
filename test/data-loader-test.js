@@ -9,7 +9,7 @@
  * @version 1.0.0
  */
 
-// core
+// modules
 const fs = require('fs');
 const Promise = require('bluebird');
 
@@ -17,7 +17,6 @@ const chai = require('chai');
 const expect = chai.expect;
 const should = chai.should();
 
-// third party modules
 const _ = require('lodash');
 const csv = require('csv-parser');
 const moment = require('moment');
@@ -29,7 +28,6 @@ const Patient = require('../models/patient');
 const mongoose = require('mongoose');
 mongoose.Promise = require('bluebird');
 
-// constants
 const numberOfBulkRecords = parseInt(process.env.BULK_RECORDS) || 1000;
 const csvFileName = process.env.CSV_FILE_NAME;
 const mongoDbUri = process.env.MONGO_DB_URI;
@@ -51,7 +49,7 @@ describe('Data Loader - Tests ', () => {
     let countRows;
     let rows;
 
-    beforeEach(async () => {
+    before(async () => {
         countRows = 0;
         rows = [];
         await mongoose.connect(mongoDbUri, connectOptions, (err, res) => {
@@ -63,7 +61,7 @@ describe('Data Loader - Tests ', () => {
         db = mongoose.connection;
     });
 
-    afterEach(() => {
+    after(() => {
         if(db) {
             db.close();
         }
@@ -117,9 +115,12 @@ describe('Data Loader - Tests ', () => {
                         done(error);
                     });
                 }
+            })
+            .on('error', (error) => {
+                logger.log('error', `Error in the read stream ${error} `);
             });
 
-        stream.pipe(csvStream);
+        return stream.pipe(csvStream);
         // done();
     });
 

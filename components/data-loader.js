@@ -6,11 +6,10 @@
  * @version 1.0.0
  */
 
-// core modules
+// modules
 const fs = require('fs');
 const Promise = require('bluebird');
 
-// third party modules
 const _ = require('lodash');
 const csv = require('csv-parser');
 const moment = require('moment');
@@ -33,7 +32,6 @@ class DataLoader {
             throw new Error('Missing the required data.');
         }
 
-        // constants
         this.fileName = data.fileName; // CSV file name
         this.numberOfBulkRecords = data.numberOfBulkRecords; // size of the chunk of data
         this.numberOfEmails = 4; // number of emails that will be scheduled
@@ -121,96 +119,106 @@ class DataLoader {
         // verbose
         logger.debug('DataLoader - start schedulePatientEmails.');
 
-        let headerRow;
+        return new Promise((resolve, reject) => {
+            if(self.fileName){
+                let headerRow;
 
-        let countEmails = 0;
-        let countPatients = 0;
+                let countEmails = 0;
+                let countPatients = 0;
 
-        let patients = [];
+                let patients = [];
 
-        let csvStream = fs.createReadStream(self.fileName)
-            .pipe(csv({separator: self.specialSeparator}))
-            .on('headers', (headers) => {
-                logger.log('info', `Header row ${headers} `);
-                // get header from first row of the CSV file
-                headerRow = _.split(headers, ',');
-            })
-            .on('data', (data) => {
-                countPatients++
+                let csvStream = fs.createReadStream(self.fileName)
+                    .pipe(csv({separator: self.specialSeparator}))
+                    .on('headers', (headers) => {
+                        logger.log('info', `Header row ${headers} `);
+                        // get header from first row of the CSV file
+                        headerRow = _.split(headers, ',');
+                    })
+                    .on('data', (data) => {
+                        countPatients++
 
-                let updatePatient = _.fromPairs(_.map(headerRow, (column) => {
-                   return [_.camelCase(column), data[column]];
-                }));
+                        let updatePatient = _.fromPairs(_.map(headerRow, (column) => {
+                            return [_.camelCase(column), data[column]];
+                        }));
 
-                let newPatient =
-                    {
-                        updateOne: {
-                            filter: {
-                                memberId: data['Member ID']
-                            },
-                            update: updatePatient,
-                            upsert: true
+                        let newPatient =
+                            {
+                                updateOne: {
+                                    filter: {
+                                        memberId: data['Member ID']
+                                    },
+                                    update: updatePatient,
+                                    upsert: true
+                                }
+                            };
+
+                        patients.push(newPatient);
+                        csvStream.pause(); // wait for the next chunk of data
+
+                        if(patients.length === self.numberOfBulkRecords){
+                            return Patient.bulkWrite(patients, (err, res) => {
+                                logger.log('info', `${patients.length} patients have been successfully uploaded.`);
+
+                                if(res.result.upserted){
+                                    return Promise.all(self.createEmails(res.result.upserted))
+                                        .then((emails) => {
+                                            if(_.size(emails)){
+                                                return Promise.all(self.populatePatientEmails(emails)).then(() => {
+                                                    countEmails += emails.length;
+                                                    logger.log('info', `on data ${emails.length} emails scheduled.`);
+                                                    patients = [];
+                                                    csvStream.resume();
+                                                });
+                                            }else{
+                                                patients = [];
+                                                csvStream.resume();
+                                            }
+                                        })
+                                        .catch(err => logger.log('error', `Critical failure: ${err}`));
+                                }
+                                patients = [];
+                                csvStream.resume();
+                            });
+
+                        }else{
+                            csvStream.resume();
                         }
-                    };
+                    })
+                    .on('end', () => {
+                        if(countPatients){
+                            return Patient.bulkWrite(patients, (err, res) => {
+                                if(res.result.upserted){
+                                    return Promise.all(self.createEmails(res.result.upserted))
+                                        .then(async (emails) => {
+                                            if(_.size(emails)){
+                                                return Promise.all(self.populatePatientEmails(emails)).then(() => {
+                                                    countEmails += emails.length;
+                                                    logger.log('info', `${patients.length} patients have been successfully uploaded.`);
+                                                    logger.log('info', `on end ${emails.length} emails scheduled.`);
+                                                    logger.log('info', 'Data successfully loaded.');
+                                                    logger.log('info', `Summary: ${countPatients} patients have been successfully uploaded, ${countEmails} emails scheduled.`);
+                                                    patients = [];
+                                                    resolve();
+                                                });
+                                            }
 
-                patients.push(newPatient);
-                csvStream.pause(); // wait for the next chunk of data
-
-                if(patients.length === self.numberOfBulkRecords){
-                    Patient.bulkWrite(patients, (err, res) => {
-                        if(err) throw err;
-                        logger.log('info', `${patients.length} patients have been successfully uploaded.`);
-
-                        if(res.result.upserted){
-                            return Promise.all(self.createEmails(res.result.upserted)).then(async (emails) => {
-                                if(_.size(emails)){
-                                    return Promise.all(self.populatePatientEmails(emails)).then(() => {
-                                        countEmails += emails.length;
-                                        patients = [];
-                                        csvStream.resume();
-                                    });
-                                }else{
-                                    patients = [];
-                                    csvStream.resume();
+                                            logger.log('info', 'Data successfully loaded.');
+                                            logger.log('info', `Summary: ${countPatients} patients have been successfully uploaded, ${countEmails} emails scheduled.`);
+                                            resolve();
+                                        })
+                                        .catch(err => logger.log('error', `Critical failure: ${err}`));
                                 }
                             });
+                        }else{
+                            reject(`The file ${self.fileName} is empty.`);
                         }
-                        patients = [];
-                        csvStream.resume();
+                    })
+                    .on('error', (error) => {
+                        reject(`Error in the read stream ${error}`);
                     });
-
-                }else{
-                    csvStream.resume();
-                }
-            })
-            .on('end', () => {
-                if(countPatients){
-                    Patient.bulkWrite(patients, (err, res) => {
-                        if(err) throw err;
-
-                        if(res.result.upserted){
-                            return Promise.all(self.createEmails(res.result.upserted)).then(async (emails) => {
-                                if(_.size(emails)){
-                                    return Promise.all(self.populatePatientEmails(emails)).then(() => {
-                                        countEmails += emails.length;
-                                        logger.log('info', `${patients.length} patients have been successfully uploaded.`);
-                                        logger.log('info', `${emails.length} emails scheduled.`);
-                                        logger.log('info', 'Data successfully loaded.');
-                                        logger.log('info', `Summary: ${countPatients} patients have been successfully uploaded, ${countEmails} emails scheduled.`);
-                                        patients = [];
-                                    });
-                                }
-
-                                logger.log('info', 'Data successfully loaded.');
-                                logger.log('info', `Summary: ${countPatients} patients have been successfully uploaded, ${countEmails} emails scheduled.`);
-                            });
-                        }
-                    });
-                }else{
-                    logger.log('error', `The file ${self.fileName} is empty.`);
-                }
-            });
-        return Promise.resolve();
+            }
+        });
     }
 }
 
